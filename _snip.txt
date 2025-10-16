@@ -1,0 +1,9 @@
+t.session_state.selected_vin_to_add_part = None
+if 'part_count' not in st.session_state:
+    st.session_state.part_count = 1
+if 'supplier_count' not in st.session_state:
+    st.session_state.supplier_count = 1
+if 'supplier_count_edit' not in st.session_state:
+    st.session_state.supplier_count_edit = 1
+if 'current_part_id_to_add_supplier' not in st.session_state:
+    st.session_state.curr

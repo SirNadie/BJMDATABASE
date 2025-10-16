@@ -1,0 +1,38 @@
+from datetime import datetime
+import streamlit as st
+
+from auth import require_admin
+from db_utils import get_activity_logs
+
+
+def render_activity_logs_view():
+    require_admin()
+    st.header("Activity Logs")
+
+    if st.button("Back to Main"):
+        st.session_state.view = 'main'
+        st.session_state.need_rerun = True
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        filter_username = st.text_input("Filter by username", "")
+    with col2:
+        log_limit = st.number_input("Number of logs", min_value=10, max_value=1000, value=100)
+
+    logs_df = get_activity_logs(filter_username if filter_username else None, log_limit)
+
+    if not logs_df.empty:
+        st.dataframe(logs_df, width='stretch')
+
+        if st.button("Export Logs to CSV"):
+            csv = logs_df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"activity_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+            )
+    else:
+        st.info("No activity logs found.")

@@ -1,0 +1,9 @@
+
+# Add logout button to sidebar
+st.sidebar.button("🚪 Logout", on_click=logout)
+st.sidebar.write(f"Logged in as: {st.session_state.username} ({st.session_state.user_role})")
+
+# Add admin menu (moved to ui/navigation). Disable legacy button:
+if False:
+    if st.sidebar.button("📊 View Activity Logs"):
+        st.session_state.view = 'activity_logs'

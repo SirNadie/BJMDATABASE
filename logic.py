@@ -258,15 +258,73 @@ def delete_client(phone, username):
     
     return result
 
-def delete_vin(vin_number, username):
-    """Delete a VIN and all associated parts"""
-    if not vin_number:
-        raise ValueError("VIN number is required")
-    
-    result = _execute_query("DELETE FROM vins WHERE vin_number = ?", (vin_number,))
-    
-    log_activity(username, "delete_vin", f"Deleted VIN: {vin_number}", "vins", vin_number, None, None)
-    return result
+def delete_vin(vin_number, username, client_phone: str | None = None):
+    """Delete a VIN and all associated parts.
+
+    Handles special cases where VIN may be stored as NULL/blank by scoping to client_phone when provided.
+    Returns number of rows deleted.
+    """
+    if vin_number is None or str(vin_number).strip() == "":
+        vin = None
+    else:
+        vin = str(vin_number).strip()
+
+    conn = get_db_connection()
+    if conn is None:
+        raise ConnectionError("Database connection not available")
+
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.cursor()
+
+        deleted = 0
+        if vin is None or vin.lower() in {"none", "no vin provided"}:
+            # Delete the placeholder/NULL VIN for this specific client only
+            if client_phone:
+                cur.execute(
+                    "DELETE FROM vins WHERE client_phone = ? AND (vin_number IS NULL OR TRIM(vin_number) IN ('', 'None', 'none', 'No VIN provided'))",
+                    (str(client_phone),),
+                )
+            else:
+                # As a safeguard, do not mass-delete all NULL vins without scope
+                return 0
+            deleted = cur.rowcount
+        else:
+            # Exact match first (optionally scoped by client)
+            if client_phone:
+                cur.execute(
+                    "DELETE FROM vins WHERE client_phone = ? AND vin_number = ?",
+                    (str(client_phone), vin),
+                )
+            else:
+                cur.execute("DELETE FROM vins WHERE vin_number = ?", (vin,))
+            deleted = cur.rowcount
+
+            # Fallback: trim/case-insensitive match
+            if deleted == 0:
+                if client_phone:
+                    cur.execute(
+                        "DELETE FROM vins WHERE client_phone = ? AND LOWER(TRIM(vin_number)) = LOWER(TRIM(?))",
+                        (str(client_phone), vin),
+                    )
+                else:
+                    cur.execute(
+                        "DELETE FROM vins WHERE LOWER(TRIM(vin_number)) = LOWER(TRIM(?))",
+                        (vin,),
+                    )
+                deleted = cur.rowcount
+
+        conn.commit()
+
+        action_detail = f"Deleted VIN: {vin if vin is not None else '[NULL/blank]'}"
+        if deleted:
+            log_activity(username, "delete_vin", action_detail, "vins", vin or "", None, None)
+        else:
+            log_activity(username, "delete_vin", f"Delete VIN attempted (no row matched): {vin}", "vins", vin or "", None, None)
+        return deleted
+    except sqlite3.Error:
+        conn.rollback()
+        raise
 
 def delete_part(part_id, username):
     """Delete a part and all associated suppliers"""

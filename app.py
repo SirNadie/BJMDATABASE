@@ -292,7 +292,14 @@ elif st.session_state.view == 'client_list':
 
         st.markdown("---")
         st.subheader("Clients (View Details)")
-        for _, row in page_clients.iterrows():
+        # Reduce vertical space for client separators only
+        st.markdown(
+            '<style>hr.client-sep{margin:0.25rem 0!important;border:0;border-top:1px solid rgba(0,0,0,.2);}</style>',
+            unsafe_allow_html=True,
+        )
+        for idx, (_, row) in enumerate(page_clients.iterrows()):
+            if idx > 0:
+                st.markdown("<hr class=\"client-sep\">", unsafe_allow_html=True)
             c1, c2, c3 = st.columns([0.4, 0.4, 0.2])
             with c1:
                 st.write(str(row['client_name']))
@@ -534,7 +541,7 @@ elif st.session_state.view == 'client_details':
                                         'suppliers': suppliers.to_dict(orient='records') if not suppliers.empty else []
                                     })
                                 try:
-                                    delete_vin(vin_no, st.session_state.username)
+                                    delete_vin(vin_no, st.session_state.username, str(phone))
                                     st.session_state.last_delete = {
                                         'type': 'vin',
                                         'client_phone': str(phone),

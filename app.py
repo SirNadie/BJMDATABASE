@@ -254,15 +254,29 @@ elif st.session_state.view == 'user_management':
 # --- Clients List View ---
 elif st.session_state.view == 'client_list':
     st.header("Clients")
+    if "client_list_page" not in st.session_state:
+        st.session_state.client_list_page = 0
+
     if st.button("Back to Main"):
         st.session_state.view = 'main'
         st.session_state.need_rerun = True
+        st.session_state.client_list_page = 0
 
     clients_df = df_clients.copy()
 
     if clients_df.empty:
         st.info("No clients found.")
     else:
+        page_size = 20
+        total_clients = len(clients_df)
+        total_pages = max((total_clients - 1) // page_size + 1, 1)
+        current_page = st.session_state.get('client_list_page', 0)
+        current_page = max(0, min(current_page, total_pages - 1))
+        st.session_state.client_list_page = current_page
+        start_idx = current_page * page_size
+        end_idx = start_idx + page_size
+        page_clients = clients_df.iloc[start_idx:end_idx]
+
         st.markdown("---")
         st.subheader("Open Client Details")
         # Option A: quick select
@@ -278,7 +292,9 @@ elif st.session_state.view == 'client_list':
 
         st.markdown("---")
         st.subheader("Clients (View Details)")
-        for _, row in clients_df.iterrows():
+        for idx, (_, row) in enumerate(page_clients.iterrows()):
+            if idx > 0:
+                st.markdown("---")
             c1, c2, c3 = st.columns([0.4, 0.4, 0.2])
             with c1:
                 st.write(str(row['client_name']))
@@ -291,6 +307,19 @@ elif st.session_state.view == 'client_list':
                     st.session_state.edit_mode = False
                     st.session_state.view = 'client_details'
                     st.session_state.need_rerun = True
+
+        st.markdown("---")
+        nav_cols = st.columns([0.2, 0.6, 0.2])
+        with nav_cols[0]:
+            if st.button("Previous Page", disabled=current_page == 0):
+                st.session_state.client_list_page = max(current_page - 1, 0)
+                st.session_state.need_rerun = True
+        with nav_cols[1]:
+            st.write(f"Page {current_page + 1} of {total_pages}")
+        with nav_cols[2]:
+            if st.button("Next Page", disabled=current_page >= total_pages - 1):
+                st.session_state.client_list_page = min(current_page + 1, total_pages - 1)
+                st.session_state.need_rerun = True
 
 # --- Client Details View ---
 elif st.session_state.view == 'client_details':

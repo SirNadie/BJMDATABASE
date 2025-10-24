@@ -8,10 +8,6 @@ import zipfile
 from datetime import datetime
 import json
 import hashlib
-try:
-    import bcrypt  # Optional; fallback to SHA-256 if unavailable
-except Exception:  # pragma: no cover
-    bcrypt = None
 
 # Use relative path for deployment
 DB_NAME = 'brent_j_marketing.db'
@@ -133,10 +129,7 @@ def create_tables():
         ''')
         
         # Create default admin user
-        if bcrypt:
-            admin_password_hash = bcrypt.hashpw("admin".encode(), bcrypt.gensalt()).decode()
-        else:
-            admin_password_hash = hashlib.sha256("admin".encode()).hexdigest()
+        admin_password_hash = hashlib.sha256("admin".encode()).hexdigest()
         cursor.execute('''
             INSERT OR IGNORE INTO users (username, password_hash, role) 
             VALUES (?, ?, ?)
@@ -257,8 +250,11 @@ def log_activity(username, action, details, table_name=None, record_id=None, old
 
 # ===== User management helpers (admin UI) =====
 def _hash_password(password: str) -> str:
-    if bcrypt:
-        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    """Return a SHA-256 hash for the provided password.
+
+    We intentionally avoid bcrypt so the resulting hashes can be validated on
+    installations where the optional bcrypt dependency is not available.
+    """
     return hashlib.sha256(password.encode()).hexdigest()
 
 def list_users():

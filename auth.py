@@ -42,7 +42,9 @@ def _looks_like_sha256_hex(hash_str: str) -> bool:
 def authenticate_user(username, password):
     """Authenticate user credentials.
 
-    Supports legacy SHA-256 hex hashes and upgrades to bcrypt when available.
+    Supports legacy SHA-256 hex hashes and downgrades bcrypt hashes back to
+    SHA-256 so credentials continue working on installs without the optional
+    bcrypt dependency.
     """
     conn = get_db_connection()
     if conn is None:
@@ -62,36 +64,36 @@ def authenticate_user(username, password):
                 return False, None
             stored_hash, role = result[0], result[1]
             authed = False
-            upgraded = False
 
-            if stored_hash and _looks_like_bcrypt(stored_hash) and bcrypt:
-                try:
-                    authed = bcrypt.checkpw(password.encode(), stored_hash.encode())
-                except Exception:
+            if stored_hash and _looks_like_bcrypt(stored_hash):
+                if bcrypt:
+                    try:
+                        authed = bcrypt.checkpw(password.encode(), stored_hash.encode())
+                        if authed:
+                            # Replace bcrypt hash with SHA-256 for compatibility
+                            sha256_hash = hashlib.sha256(password.encode()).hexdigest()
+                            cursor.execute(
+                                "UPDATE users SET password_hash = ? WHERE username = ?",
+                                (sha256_hash, username)
+                            )
+                            # Downgraded hash stored via SHA-256
+                    except Exception:
+                        authed = False
+                else:
+                    print("bcrypt module not available; unable to validate stored bcrypt hash")
                     authed = False
             else:
-                # Legacy SHA-256 path
+                # SHA-256 path
                 sha256_hash = hashlib.sha256(password.encode()).hexdigest()
                 if stored_hash == sha256_hash:
                     authed = True
-                    # Opportunistic upgrade to bcrypt if available
-                    if bcrypt:
-                        try:
-                            new_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-                            cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_hash, username))
-                            upgraded = True
-                        except Exception:
-                            upgraded = False
 
             if authed:
                 cursor.execute(
                     "UPDATE users SET last_login = ? WHERE username = ?",
                     (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), username)
                 )
-                if upgraded:
-                    conn.commit()
-                else:
-                    conn.commit()
+                conn.commit()
                 return True, role
         return False, None
     except Exception as e:

@@ -3,36 +3,30 @@ import sqlite3
 from datetime import datetime
 import pandas as pd
 from security import validate_phone, validate_vin, sanitize_input, validate_numeric
-from db_utils import log_activity, get_db_connection
+from db_utils import log_activity, get_db_connection, get_db_connection_ctx
 
 def _execute_query(query, params=(), fetch=None):
     """A helper function to execute database queries with a cached connection."""
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-    
     try:
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        
-        if not query.strip().upper().startswith('SELECT'):
-            conn.commit()
+        with get_db_connection_ctx() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
             
-        if fetch == 'one':
-            return cursor.fetchone()
-        elif fetch == 'all':
-            return cursor.fetchall()
-        elif query.strip().upper().startswith('INSERT'):
-            return cursor.lastrowid
-        else:
-            return None
+            if not query.strip().upper().startswith('SELECT'):
+                conn.commit()
+                
+            if fetch == 'one':
+                return cursor.fetchone()
+            elif fetch == 'all':
+                return cursor.fetchall()
+            elif query.strip().upper().startswith('INSERT'):
+                return cursor.lastrowid
+            else:
+                return None
     except sqlite3.Error as e:
         print(f"Database error: {e}")
         conn.rollback()
         raise
-    finally:
-        if conn:
-            conn.close()
 
 def add_new_client(phone, client_name, username):
     """Add a new client to the database with validation"""
@@ -141,34 +135,28 @@ def add_part_to_vin(vin_number, client_phone, part_name, part_number, quantity, 
     
     date_added = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-        
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO parts (vin_number, client_phone, part_name, part_number, quantity, notes, date_added, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (vin_number, client_phone, part_name, part_number, quantity, notes, date_added, username, username)
-        )
-        part_id = cursor.lastrowid
-        
-        for supplier in suppliers:
+        with get_db_connection_ctx() as conn:
+            cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO part_suppliers (part_id, supplier_name, buying_price, selling_price, delivery_time, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (part_id, supplier['name'], supplier['buying_price'], supplier['selling_price'], supplier['delivery_time'], username, username)
+                "INSERT INTO parts (vin_number, client_phone, part_name, part_number, quantity, notes, date_added, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (vin_number, client_phone, part_name, part_number, quantity, notes, date_added, username, username)
             )
-        conn.commit()
-        
-        log_activity(username, "add_part", f"Added part: {part_name} ({part_number}) to VIN: {vin_number}", 
-                    "parts", part_id, None, {"part_name": part_name, "part_number": part_number})
-        return part_id
+            part_id = cursor.lastrowid
+            
+            for supplier in suppliers:
+                cursor.execute(
+                    "INSERT INTO part_suppliers (part_id, supplier_name, buying_price, selling_price, delivery_time, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (part_id, supplier['name'], supplier['buying_price'], supplier['selling_price'], supplier['delivery_time'], username, username)
+                )
+            conn.commit()
+            
+            log_activity(username, "add_part", f"Added part: {part_name} ({part_number}) to VIN: {vin_number}", 
+                        "parts", part_id, None, {"part_name": part_name, "part_number": part_number})
+            return part_id
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during part/supplier addition: {e}")
         raise
-    finally:
-        conn.close()
 
 def safe_add_part_to_vin(vin_number, client_phone, part_data, suppliers, username):
     """
@@ -212,34 +200,28 @@ def add_part_without_vin(part_name, part_number, quantity, notes, client_phone, 
     
     date_added = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-        
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO parts (part_name, part_number, quantity, notes, date_added, client_phone, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (part_name, part_number, quantity, notes, date_added, client_phone, username, username)
-        )
-        part_id = cursor.lastrowid
-        
-        for supplier in suppliers:
+        with get_db_connection_ctx() as conn:
+            cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO part_suppliers (part_id, supplier_name, buying_price, selling_price, delivery_time, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (part_id, supplier['name'], supplier['buying_price'], supplier['selling_price'], supplier['delivery_time'], username, username)
+                "INSERT INTO parts (part_name, part_number, quantity, notes, date_added, client_phone, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (part_name, part_number, quantity, notes, date_added, client_phone, username, username)
             )
-        conn.commit()
-        
-        log_activity(username, "add_part", f"Added part without VIN: {part_name} ({part_number}) for client: {client_phone}", 
-                    "parts", part_id, None, {"part_name": part_name, "part_number": part_number})
-        return part_id
+            part_id = cursor.lastrowid
+            
+            for supplier in suppliers:
+                cursor.execute(
+                    "INSERT INTO part_suppliers (part_id, supplier_name, buying_price, selling_price, delivery_time, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (part_id, supplier['name'], supplier['buying_price'], supplier['selling_price'], supplier['delivery_time'], username, username)
+                )
+            conn.commit()
+            
+            log_activity(username, "add_part", f"Added part without VIN: {part_name} ({part_number}) for client: {client_phone}", 
+                        "parts", part_id, None, {"part_name": part_name, "part_number": part_number})
+            return part_id
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during part/supplier addition: {e}")
         raise
-    finally:
-        conn.close()
 
 def delete_client(phone, username):
     """Delete a client and all associated data"""
@@ -273,64 +255,58 @@ def delete_vin(vin_number, username, client_phone: str | None = None):
     else:
         vin = str(vin_number).strip()
 
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-
     try:
-        conn.execute("PRAGMA foreign_keys = ON")
-        cur = conn.cursor()
+        with get_db_connection_ctx() as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            cur = conn.cursor()
 
-        deleted = 0
-        if vin is None or vin.lower() in {"none", "no vin provided"}:
-            # Delete the placeholder/NULL VIN for this specific client only
-            if client_phone:
-                cur.execute(
-                    "DELETE FROM vins WHERE client_phone = ? AND (vin_number IS NULL OR TRIM(vin_number) IN ('', 'None', 'none', 'No VIN provided'))",
-                    (str(client_phone),),
-                )
-            else:
-                # As a safeguard, do not mass-delete all NULL vins without scope
-                return 0
-            deleted = cur.rowcount
-        else:
-            # Exact match first (optionally scoped by client)
-            if client_phone:
-                cur.execute(
-                    "DELETE FROM vins WHERE client_phone = ? AND vin_number = ?",
-                    (str(client_phone), vin),
-                )
-            else:
-                cur.execute("DELETE FROM vins WHERE vin_number = ?", (vin,))
-            deleted = cur.rowcount
-
-            # Fallback: trim/case-insensitive match
-            if deleted == 0:
+            deleted = 0
+            if vin is None or vin.lower() in {"none", "no vin provided"}:
+                # Delete the placeholder/NULL VIN for this specific client only
                 if client_phone:
                     cur.execute(
-                        "DELETE FROM vins WHERE client_phone = ? AND LOWER(TRIM(vin_number)) = LOWER(TRIM(?))",
+                        "DELETE FROM vins WHERE client_phone = ? AND (vin_number IS NULL OR TRIM(vin_number) IN ('', 'None', 'none', 'No VIN provided'))",
+                        (str(client_phone),),
+                    )
+                else:
+                    # As a safeguard, do not mass-delete all NULL vins without scope
+                    return 0
+                deleted = cur.rowcount
+            else:
+                # Exact match first (optionally scoped by client)
+                if client_phone:
+                    cur.execute(
+                        "DELETE FROM vins WHERE client_phone = ? AND vin_number = ?",
                         (str(client_phone), vin),
                     )
                 else:
-                    cur.execute(
-                        "DELETE FROM vins WHERE LOWER(TRIM(vin_number)) = LOWER(TRIM(?))",
-                        (vin,),
-                    )
+                    cur.execute("DELETE FROM vins WHERE vin_number = ?", (vin,))
                 deleted = cur.rowcount
 
-        conn.commit()
+                # Fallback: trim/case-insensitive match
+                if deleted == 0:
+                    if client_phone:
+                        cur.execute(
+                            "DELETE FROM vins WHERE client_phone = ? AND LOWER(TRIM(vin_number)) = LOWER(TRIM(?))",
+                            (str(client_phone), vin),
+                        )
+                    else:
+                        cur.execute(
+                            "DELETE FROM vins WHERE LOWER(TRIM(vin_number)) = LOWER(TRIM(?))",
+                            (vin,),
+                        )
+                    deleted = cur.rowcount
 
-        action_detail = f"Deleted VIN: {vin if vin is not None else '[NULL/blank]'}"
-        if deleted:
-            log_activity(username, "delete_vin", action_detail, "vins", vin or "", None, None)
-        else:
-            log_activity(username, "delete_vin", f"Delete VIN attempted (no row matched): {vin}", "vins", vin or "", None, None)
-        return deleted
+            conn.commit()
+
+            action_detail = f"Deleted VIN: {vin if vin is not None else '[NULL/blank]'}"
+            if deleted:
+                log_activity(username, "delete_vin", action_detail, "vins", vin or "", None, None)
+            else:
+                log_activity(username, "delete_vin", f"Delete VIN attempted (no row matched): {vin}", "vins", vin or "", None, None)
+            return deleted
     except sqlite3.Error:
-        conn.rollback()
         raise
-    finally:
-        conn.close()
 
 def delete_part(part_id, username):
     """Delete a part and all associated suppliers"""
@@ -361,31 +337,25 @@ def update_client_and_vins(old_phone, new_phone, new_name, username):
     if not new_phone:
         raise ValueError("New phone number is required")
     
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-        
     try:
-        # Get old values for logging
-        old_client = _execute_query("SELECT * FROM clients WHERE phone = ?", (old_phone,), fetch='one')
-        
-        cursor = conn.cursor()
-        cursor.execute("UPDATE clients SET phone = ?, client_name = ?, last_updated_by = ? WHERE phone = ?", 
-                      (new_phone, new_name, username, old_phone))
-        cursor.execute("UPDATE vins SET client_phone = ?, last_updated_by = ? WHERE client_phone = ?", 
-                      (new_phone, username, old_phone))
-        cursor.execute("UPDATE parts SET client_phone = ?, last_updated_by = ? WHERE client_phone = ?", 
-                      (new_phone, username, old_phone))
-        conn.commit()
-        
-        log_activity(username, "update_client", f"Updated client: {old_phone} -> {new_phone}, name: {new_name}", 
-                    "clients", new_phone, {"phone": old_phone}, {"phone": new_phone, "client_name": new_name})
+        with get_db_connection_ctx() as conn:
+            # Get old values for logging
+            old_client = _execute_query("SELECT * FROM clients WHERE phone = ?", (old_phone,), fetch='one')
+            
+            cursor = conn.cursor()
+            cursor.execute("UPDATE clients SET phone = ?, client_name = ?, last_updated_by = ? WHERE phone = ?", 
+                        (new_phone, new_name, username, old_phone))
+            cursor.execute("UPDATE vins SET client_phone = ?, last_updated_by = ? WHERE client_phone = ?", 
+                        (new_phone, username, old_phone))
+            cursor.execute("UPDATE parts SET client_phone = ?, last_updated_by = ? WHERE client_phone = ?", 
+                        (new_phone, username, old_phone))
+            conn.commit()
+            
+            log_activity(username, "update_client", f"Updated client: {old_phone} -> {new_phone}, name: {new_name}", 
+                        "clients", new_phone, {"phone": old_phone}, {"phone": new_phone, "client_name": new_name})
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during client update: {e}")
         raise
-    finally:
-        conn.close()
 
 def update_part(part_id, part_name, part_number, quantity, notes, suppliers_data, username):
     """Update part information and suppliers with a cached connection."""
@@ -395,39 +365,33 @@ def update_part(part_id, part_name, part_number, quantity, notes, suppliers_data
     if not part_name and not part_number:
         raise ValueError("Part name or part number is required")
     
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-        
     try:
-        # Get old values for logging
-        old_part = _execute_query("SELECT * FROM parts WHERE id = ?", (part_id,), fetch='one')
-        old_suppliers = _execute_query("SELECT * FROM part_suppliers WHERE part_id = ?", (part_id,), fetch='all')
-        
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE parts SET part_name = ?, part_number = ?, quantity = ?, notes = ?, last_updated_by = ? WHERE id = ?",
-            (part_name, part_number, quantity, notes, username, part_id)
-        )
-        cursor.execute("DELETE FROM part_suppliers WHERE part_id = ?", (part_id, ))
-        for supplier in suppliers_data:
+        with get_db_connection_ctx() as conn:
+            # Get old values for logging
+            old_part = _execute_query("SELECT * FROM parts WHERE id = ?", (part_id,), fetch='one')
+            old_suppliers = _execute_query("SELECT * FROM part_suppliers WHERE part_id = ?", (part_id,), fetch='all')
+            
+            cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO part_suppliers (part_id, supplier_name, buying_price, selling_price, delivery_time, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (part_id, supplier['name'], supplier['buying_price'], supplier['selling_price'], supplier['delivery_time'], username, username)
+                "UPDATE parts SET part_name = ?, part_number = ?, quantity = ?, notes = ?, last_updated_by = ? WHERE id = ?",
+                (part_name, part_number, quantity, notes, username, part_id)
             )
-        conn.commit()
-        
-        log_activity(username, "update_part", f"Updated part: {part_name} ({part_number}) - ID: {part_id}", 
-                    "parts", part_id, 
-                    {"part_name": old_part[3], "part_number": old_part[4], "quantity": old_part[5]},
-                    {"part_name": part_name, "part_number": part_number, "quantity": quantity})
-        return part_id
+            cursor.execute("DELETE FROM part_suppliers WHERE part_id = ?", (part_id, ))
+            for supplier in suppliers_data:
+                cursor.execute(
+                    "INSERT INTO part_suppliers (part_id, supplier_name, buying_price, selling_price, delivery_time, created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (part_id, supplier['name'], supplier['buying_price'], supplier['selling_price'], supplier['delivery_time'], username, username)
+                )
+            conn.commit()
+            
+            log_activity(username, "update_part", f"Updated part: {part_name} ({part_number}) - ID: {part_id}", 
+                        "parts", part_id, 
+                        {"part_name": old_part[3], "part_number": old_part[4], "quantity": old_part[5]},
+                        {"part_name": part_name, "part_number": part_number, "quantity": quantity})
+            return part_id
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during part update: {e}")
         raise
-    finally:
-        conn.close()
 
 def get_clients_by_page(page, page_size=20):
     """Fetch clients for a specific page, ordered by last update."""
@@ -484,64 +448,54 @@ def update_supplier(supplier_id: int, supplier_name: str, buying_price: float, s
     if not validate_numeric(selling_price, min_val=0):
         raise ValueError("Invalid selling price")
 
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
     try:
-        cur = conn.cursor()
-        old_row = cur.execute("SELECT part_id, supplier_name, buying_price, selling_price, delivery_time FROM part_suppliers WHERE id = ?", (supplier_id,)).fetchone()
-        if not old_row:
-            raise ValueError("Supplier not found")
-        cur.execute(
-            "UPDATE part_suppliers SET supplier_name = ?, buying_price = ?, selling_price = ?, delivery_time = ?, last_updated_by = ? WHERE id = ?",
-            (supplier_name, float(buying_price or 0), float(selling_price or 0), delivery_time or '', username, supplier_id)
-        )
-        conn.commit()
-        log_activity(
-            username,
-            "update_supplier",
-            f"Updated supplier {supplier_id} for part {old_row[0]}",
-            "part_suppliers",
-            str(supplier_id),
-            {"supplier_name": old_row[1], "buying_price": old_row[2], "selling_price": old_row[3], "delivery_time": old_row[4]},
-            {"supplier_name": supplier_name, "buying_price": float(buying_price or 0), "selling_price": float(selling_price or 0), "delivery_time": delivery_time or ''},
-        )
-        return True
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            old_row = cur.execute("SELECT part_id, supplier_name, buying_price, selling_price, delivery_time FROM part_suppliers WHERE id = ?", (supplier_id,)).fetchone()
+            if not old_row:
+                raise ValueError("Supplier not found")
+            cur.execute(
+                "UPDATE part_suppliers SET supplier_name = ?, buying_price = ?, selling_price = ?, delivery_time = ?, last_updated_by = ? WHERE id = ?",
+                (supplier_name, float(buying_price or 0), float(selling_price or 0), delivery_time or '', username, supplier_id)
+            )
+            conn.commit()
+            log_activity(
+                username,
+                "update_supplier",
+                f"Updated supplier {supplier_id} for part {old_row[0]}",
+                "part_suppliers",
+                str(supplier_id),
+                {"supplier_name": old_row[1], "buying_price": old_row[2], "selling_price": old_row[3], "delivery_time": old_row[4]},
+                {"supplier_name": supplier_name, "buying_price": float(buying_price or 0), "selling_price": float(selling_price or 0), "delivery_time": delivery_time or ''},
+            )
+            return True
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during supplier update: {e}")
         raise
-    finally:
-        conn.close()
 
 def delete_supplier(supplier_id: int, username: str):
     """Delete a supplier from part_suppliers."""
     if not supplier_id:
         raise ValueError("Supplier ID is required")
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
     try:
-        cur = conn.cursor()
-        old_row = cur.execute("SELECT part_id, supplier_name, buying_price, selling_price, delivery_time FROM part_suppliers WHERE id = ?", (supplier_id,)).fetchone()
-        cur.execute("DELETE FROM part_suppliers WHERE id = ?", (supplier_id,))
-        conn.commit()
-        log_activity(
-            username,
-            "delete_supplier",
-            f"Deleted supplier {supplier_id} for part {old_row[0] if old_row else ''}",
-            "part_suppliers",
-            str(supplier_id),
-            {"supplier_name": old_row[1] if old_row else None},
-            None,
-        )
-        return True
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            old_row = cur.execute("SELECT part_id, supplier_name, buying_price, selling_price, delivery_time FROM part_suppliers WHERE id = ?", (supplier_id,)).fetchone()
+            cur.execute("DELETE FROM part_suppliers WHERE id = ?", (supplier_id,))
+            conn.commit()
+            log_activity(
+                username,
+                "delete_supplier",
+                f"Deleted supplier {supplier_id} for part {old_row[0] if old_row else ''}",
+                "part_suppliers",
+                str(supplier_id),
+                {"supplier_name": old_row[1] if old_row else None},
+                None,
+            )
+            return True
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during supplier deletion: {e}")
         raise
-    finally:
-        conn.close()
 
 def get_part_details(part_id):
     """Retrieve a single part details by its ID."""
@@ -615,47 +569,41 @@ def move_part_to_vin(part_id: int, new_vin_number: str, username: str):
     if not validate_vin(clean_vin):
         raise ValueError("Invalid VIN format. Must be 7, 13, or 17 alphanumeric characters.")
 
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-
     try:
-        cur = conn.cursor()
-        # Get existing part
-        part_row = cur.execute("SELECT id, vin_number, client_phone, part_name, part_number FROM parts WHERE id = ?", (part_id,)).fetchone()
-        if not part_row:
-            raise ValueError("Part not found")
-        old_vin = part_row[1]
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            # Get existing part
+            part_row = cur.execute("SELECT id, vin_number, client_phone, part_name, part_number FROM parts WHERE id = ?", (part_id,)).fetchone()
+            if not part_row:
+                raise ValueError("Part not found")
+            old_vin = part_row[1]
 
-        # Target VIN must exist
-        vin_row = cur.execute("SELECT vin_number, client_phone FROM vins WHERE vin_number = ?", (clean_vin,)).fetchone()
-        if not vin_row:
-            raise ValueError("Target VIN not found")
-        target_phone = vin_row[1]
+            # Target VIN must exist
+            vin_row = cur.execute("SELECT vin_number, client_phone FROM vins WHERE vin_number = ?", (clean_vin,)).fetchone()
+            if not vin_row:
+                raise ValueError("Target VIN not found")
+            target_phone = vin_row[1]
 
-        # Update part assignment
-        cur.execute(
-            "UPDATE parts SET vin_number = ?, client_phone = ?, last_updated_by = ? WHERE id = ?",
-            (clean_vin, target_phone, username, part_id)
-        )
-        conn.commit()
+            # Update part assignment
+            cur.execute(
+                "UPDATE parts SET vin_number = ?, client_phone = ?, last_updated_by = ? WHERE id = ?",
+                (clean_vin, target_phone, username, part_id)
+            )
+            conn.commit()
 
-        log_activity(
-            username,
-            "move_part",
-            f"Moved part ID {part_id} from VIN {old_vin or 'None'} to {clean_vin}",
-            "parts",
-            str(part_id),
-            {"vin_number": old_vin},
-            {"vin_number": clean_vin, "client_phone": target_phone},
-        )
-        return True
+            log_activity(
+                username,
+                "move_part",
+                f"Moved part ID {part_id} from VIN {old_vin or 'None'} to {clean_vin}",
+                "parts",
+                str(part_id),
+                {"vin_number": old_vin},
+                {"vin_number": clean_vin, "client_phone": target_phone},
+            )
+            return True
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during moving part: {e}")
         raise
-    finally:
-        conn.close()
 
 def update_vin(old_vin_number: str, new_vin_number: str, model: str, prod_yr: str, body: str, engine: str, code: str, transmission: str, username: str):
     """Update VIN details. If VIN number changes, update dependent parts as well."""
@@ -669,85 +617,74 @@ def update_vin(old_vin_number: str, new_vin_number: str, model: str, prod_yr: st
     else:
         raise ValueError("New VIN cannot be empty")
 
-    conn = get_db_connection()
-    if conn is None:
-        raise ConnectionError("Database connection not available")
-
     try:
-        cur = conn.cursor()
-        # Check existence of old VIN
-        row = cur.execute("SELECT vin_number, client_phone FROM vins WHERE vin_number = ?", (old_vin_number,)).fetchone()
-        if not row:
-            raise ValueError("VIN not found")
-        client_phone = row[1]
+        with get_db_connection_ctx() as conn:
+            cur = conn.cursor()
+            # Check existence of old VIN
+            row = cur.execute("SELECT vin_number, client_phone FROM vins WHERE vin_number = ?", (old_vin_number,)).fetchone()
+            if not row:
+                raise ValueError("VIN not found")
+            client_phone = row[1]
 
-        # If VIN is changing, ensure no conflict
-        if clean_new_vin != old_vin_number:
-            conflict = cur.execute("SELECT 1 FROM vins WHERE vin_number = ?", (clean_new_vin,)).fetchone()
-            if conflict:
-                raise ValueError("Another record already uses the new VIN number")
+            # If VIN is changing, ensure no conflict
+            if clean_new_vin != old_vin_number:
+                conflict = cur.execute("SELECT 1 FROM vins WHERE vin_number = ?", (clean_new_vin,)).fetchone()
+                if conflict:
+                    raise ValueError("Another record already uses the new VIN number")
 
-        # Update vins record (including possibly the VIN PK)
-        cur.execute(
-            "UPDATE vins SET vin_number = ?, model = ?, prod_yr = ?, body = ?, engine = ?, code = ?, transmission = ?, last_updated_by = ? WHERE vin_number = ?",
-            (clean_new_vin, model, prod_yr, body, engine, code, transmission, username, old_vin_number)
-        )
-
-        # Update dependent parts' vin_number if VIN changed
-        if clean_new_vin != old_vin_number:
+            # Update vins record (including possibly the VIN PK)
             cur.execute(
-                "UPDATE parts SET vin_number = ?, last_updated_by = ? WHERE vin_number = ?",
-                (clean_new_vin, username, old_vin_number)
+                "UPDATE vins SET vin_number = ?, model = ?, prod_yr = ?, body = ?, engine = ?, code = ?, transmission = ?, last_updated_by = ? WHERE vin_number = ?",
+                (clean_new_vin, model, prod_yr, body, engine, code, transmission, username, old_vin_number)
             )
 
-        conn.commit()
-        log_activity(
-            username,
-            "update_vin",
-            f"Updated VIN {old_vin_number} -> {clean_new_vin} for client {client_phone}",
-            "vins",
-            clean_new_vin,
-            {"vin_number": old_vin_number},
-            {"vin_number": clean_new_vin, "model": model, "prod_yr": prod_yr, "body": body, "engine": engine, "code": code, "transmission": transmission},
-        )
-        return clean_new_vin
+            # Update dependent parts' vin_number if VIN changed
+            if clean_new_vin != old_vin_number:
+                cur.execute(
+                    "UPDATE parts SET vin_number = ?, last_updated_by = ? WHERE vin_number = ?",
+                    (clean_new_vin, username, old_vin_number)
+                )
+
+            conn.commit()
+            log_activity(
+                username,
+                "update_vin",
+                f"Updated VIN {old_vin_number} -> {clean_new_vin} for client {client_phone}",
+                "vins",
+                clean_new_vin,
+                {"vin_number": old_vin_number},
+                {"vin_number": clean_new_vin, "model": model, "prod_yr": prod_yr, "body": body, "engine": engine, "code": code, "transmission": transmission},
+            )
+            return clean_new_vin
     except sqlite3.Error as e:
-        conn.rollback()
         print(f"Database error during VIN update: {e}")
         raise
-    finally:
-        conn.close()
 
 def search_db(query):
     """Perform a comprehensive search across all relevant tables safely."""
     if not query:
         return {'clients': pd.DataFrame(), 'vins': pd.DataFrame(), 'parts': pd.DataFrame()}
     
-    conn = get_db_connection()
-    if conn is None:
-        return {'clients': pd.DataFrame(), 'vins': pd.DataFrame(), 'parts': pd.DataFrame()}
-
     # Use parameterized queries to prevent SQL injection
     search_pattern = f"%{query}%"
     
     try:
-        df_clients = pd.read_sql_query(
-            "SELECT * FROM clients WHERE phone LIKE ? OR client_name LIKE ?", 
-            conn, params=[search_pattern, search_pattern]
-        )
-        df_vins = pd.read_sql_query(
-            "SELECT * FROM vins WHERE vin_number LIKE ? OR model LIKE ?", 
-            conn, params=[search_pattern, search_pattern]
-        )
-        df_parts = pd.read_sql_query(
-            "SELECT * FROM parts WHERE part_name LIKE ? OR part_number LIKE ? OR notes LIKE ?", 
-            conn, params=[search_pattern, search_pattern, search_pattern]
-        )
+        with get_db_connection_ctx() as conn:
+            df_clients = pd.read_sql_query(
+                "SELECT * FROM clients WHERE phone LIKE ? OR client_name LIKE ?", 
+                conn, params=[search_pattern, search_pattern]
+            )
+            df_vins = pd.read_sql_query(
+                "SELECT * FROM vins WHERE vin_number LIKE ? OR model LIKE ?", 
+                conn, params=[search_pattern, search_pattern]
+            )
+            df_parts = pd.read_sql_query(
+                "SELECT * FROM parts WHERE part_name LIKE ? OR part_number LIKE ? OR notes LIKE ?", 
+                conn, params=[search_pattern, search_pattern, search_pattern]
+            )
     except Exception as e:
         print(f"Error during search: {e}")
         return {'clients': pd.DataFrame(), 'vins': pd.DataFrame(), 'parts': pd.DataFrame()}
-    finally:
-        conn.close()
     
     return {
         'clients': df_clients,

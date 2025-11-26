@@ -5,7 +5,7 @@ import hashlib
 import sqlite3
 import os
 import json
-from db_utils import log_activity
+from db_utils import log_activity, get_db_connection, get_db_connection_ctx
 try:
     import bcrypt  # Optional dependency for secure password hashing
 except Exception:  # pragma: no cover
@@ -13,16 +13,6 @@ except Exception:  # pragma: no cover
 
 # Use relative path for deployment
 DB_NAME = 'brent_j_marketing.db'
-
-def get_db_connection():
-    """Get database connection"""
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
-    except Exception as e:
-        print(f"Failed to connect to the database: {e}")
-        return None
 
 def _looks_like_bcrypt(hash_str: str) -> bool:
     try:

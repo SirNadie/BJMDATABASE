@@ -474,64 +474,65 @@ def export_filtered_data(filters=None, format_type: str = 'csv'):
     if conn is None:
         raise RuntimeError('Database connection not available')
 
-    include = (filters or {}).get('include') or [
-        'clients', 'vins', 'parts', 'part_suppliers'
-    ]
-    include = [t for t in include if t in ['clients', 'vins', 'parts', 'part_suppliers']]
-
-    # Load dataframes
-    dfs: dict[str, pd.DataFrame] = {}
     try:
-        if 'clients' in include:
-            dfs['clients'] = pd.read_sql_query("SELECT * FROM clients", conn)
-            dfs['clients'] = _apply_basic_filters(dfs['clients'], 'clients', filters or {})
-        if 'vins' in include:
-            dfs['vins'] = pd.read_sql_query("SELECT * FROM vins", conn)
-            dfs['vins'] = _apply_basic_filters(dfs['vins'], 'vins', filters or {})
-        if 'parts' in include or 'part_suppliers' in include:
-            df_parts = pd.read_sql_query("SELECT * FROM parts", conn)
-            df_parts = _apply_basic_filters(df_parts, 'parts', filters or {})
-            if 'parts' in include:
-                dfs['parts'] = df_parts
-            # part_suppliers depends on part ids
-            if 'part_suppliers' in include:
-                if not df_parts.empty:
-                    part_ids = df_parts['id'].dropna().astype(int).tolist()
-                    # build parameterized IN clause safely
-                    placeholders = ','.join(['?'] * len(part_ids))
-                    query = f"SELECT * FROM part_suppliers WHERE part_id IN ({placeholders})"
-                    dfs['part_suppliers'] = pd.read_sql_query(query, conn, params=part_ids)
-                else:
-                    dfs['part_suppliers'] = pd.DataFrame(columns=[
-                        'id', 'part_id', 'supplier_name', 'buying_price', 'selling_price', 'delivery_time',
-                        'created_date', 'last_updated', 'created_by', 'last_updated_by'
-                    ])
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(f"Export query failed: {e}")
+        include = (filters or {}).get('include') or [
+            'clients', 'vins', 'parts', 'part_suppliers'
+        ]
+        include = [t for t in include if t in ['clients', 'vins', 'parts', 'part_suppliers']]
 
-    # Prepare output
-    if format_type.lower() == 'excel':
-        buffer = io.BytesIO()
+        # Load dataframes
+        dfs: dict[str, pd.DataFrame] = {}
         try:
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            if 'clients' in include:
+                dfs['clients'] = pd.read_sql_query("SELECT * FROM clients", conn)
+                dfs['clients'] = _apply_basic_filters(dfs['clients'], 'clients', filters or {})
+            if 'vins' in include:
+                dfs['vins'] = pd.read_sql_query("SELECT * FROM vins", conn)
+                dfs['vins'] = _apply_basic_filters(dfs['vins'], 'vins', filters or {})
+            if 'parts' in include or 'part_suppliers' in include:
+                df_parts = pd.read_sql_query("SELECT * FROM parts", conn)
+                df_parts = _apply_basic_filters(df_parts, 'parts', filters or {})
+                if 'parts' in include:
+                    dfs['parts'] = df_parts
+                # part_suppliers depends on part ids
+                if 'part_suppliers' in include:
+                    if not df_parts.empty:
+                        part_ids = df_parts['id'].dropna().astype(int).tolist()
+                        # build parameterized IN clause safely
+                        placeholders = ','.join(['?'] * len(part_ids))
+                        query = f"SELECT * FROM part_suppliers WHERE part_id IN ({placeholders})"
+                        dfs['part_suppliers'] = pd.read_sql_query(query, conn, params=part_ids)
+                    else:
+                        dfs['part_suppliers'] = pd.DataFrame(columns=[
+                            'id', 'part_id', 'supplier_name', 'buying_price', 'selling_price', 'delivery_time',
+                            'created_date', 'last_updated', 'created_by', 'last_updated_by'
+                        ])
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(f"Export query failed: {e}")
+
+        # Prepare output
+        if format_type.lower() == 'excel':
+            buffer = io.BytesIO()
+            try:
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    for name, df in dfs.items():
+                        # Ensure sheet names are valid and unique
+                        sheet_name = name[:31]
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                data = buffer.getvalue()
+            finally:
+                buffer.close()
+            mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            return data, mime
+        else:
+            # Default to CSV ZIP
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
                 for name, df in dfs.items():
-                    # Ensure sheet names are valid and unique
-                    sheet_name = name[:31]
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    csv_bytes = df.to_csv(index=False).encode('utf-8')
+                    zf.writestr(f"{name}.csv", csv_bytes)
             data = buffer.getvalue()
-        finally:
             buffer.close()
-        mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        return data, mime
-    else:
-        # Default to CSV ZIP
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-            for name, df in dfs.items():
-                csv_bytes = df.to_csv(index=False).encode('utf-8')
-                zf.writestr(f"{name}.csv", csv_bytes)
-        data = buffer.getvalue()
-        buffer.close()
-        return data, 'application/zip'
+            return data, 'application/zip'
     finally:
         conn.close()

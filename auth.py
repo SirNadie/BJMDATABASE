@@ -97,6 +97,8 @@ def authenticate_user(username, password):
     except Exception as e:
         print(f"Authentication error: {e}")
         return False, None
+    finally:
+        conn.close()
 
 def get_user_role(username):
     """Get user role"""
@@ -112,6 +114,8 @@ def get_user_role(username):
     except Exception as e:
         print(f"Error getting user role: {e}")
         return None
+    finally:
+        conn.close()
 
     
 

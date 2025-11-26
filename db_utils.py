@@ -16,7 +16,6 @@ except Exception:  # pragma: no cover
 # Use relative path for deployment
 DB_NAME = 'brent_j_marketing.db'
 
-@st.cache_resource
 def get_db_connection():
     """Get database connection"""
     try:
@@ -145,6 +144,8 @@ def create_tables():
         conn.commit()
     except sqlite3.Error as e:
         print(f"Error creating tables: {e}")
+    finally:
+        conn.close()
 
 def migrate_schema():
     """Migrate database schema if needed"""
@@ -173,6 +174,8 @@ def migrate_schema():
         conn.commit()
     except sqlite3.Error as e:
         print(f"Migration error: {e}")
+    finally:
+        conn.close()
 
 @st.cache_data(ttl=300)
 def load_data():
@@ -190,6 +193,8 @@ def load_data():
     except Exception as e:
         print(f"Error loading data: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    finally:
+        conn.close()
 
 def get_activity_logs(username=None, limit=100):
     """Get activity logs"""
@@ -210,6 +215,8 @@ def get_activity_logs(username=None, limit=100):
     except Exception as e:
         print(f"Error getting activity logs: {e}")
         return pd.DataFrame()
+    finally:
+        conn.close()
 
 def database_maintenance():
     """Perform database maintenance"""
@@ -225,6 +232,8 @@ def database_maintenance():
     except Exception as e:
         print(f"Database maintenance error: {e}")
         return False
+    finally:
+        conn.close()
 
 def log_activity(username, action, details, table_name=None, record_id=None, old_values=None, new_values=None):
     """Log user activity to the database"""
@@ -254,6 +263,8 @@ def log_activity(username, action, details, table_name=None, record_id=None, old
     except sqlite3.Error as e:
         print(f"Error logging activity: {e}")
         conn.rollback()
+    finally:
+        conn.close()
 
 # ===== User management helpers (admin UI) =====
 def _hash_password(password: str) -> str:
@@ -274,6 +285,8 @@ def list_users():
     except Exception as e:
         print(f"Error listing users: {e}")
         return pd.DataFrame()
+    finally:
+        conn.close()
 
 def _users_has_is_active(conn) -> bool:
     try:
@@ -296,6 +309,8 @@ def count_admins() -> int:
     except Exception as e:
         print(f"Error counting admins: {e}")
         return 0
+    finally:
+        conn.close()
 
 def create_user(username: str, password: str, role: str, actor: str) -> tuple[bool, str]:
     if not username or not password:
@@ -336,6 +351,8 @@ def create_user(username: str, password: str, role: str, actor: str) -> tuple[bo
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"DB error: {e}"
+    finally:
+        conn.close()
 
 def update_user_password(username: str, new_password: str, actor: str) -> tuple[bool, str]:
     if not username or not new_password:
@@ -355,6 +372,8 @@ def update_user_password(username: str, new_password: str, actor: str) -> tuple[
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"DB error: {e}"
+    finally:
+        conn.close()
 
 def update_user_role(username: str, new_role: str, actor: str) -> tuple[bool, str]:
     if new_role not in ("user", "admin"):
@@ -381,6 +400,8 @@ def update_user_role(username: str, new_role: str, actor: str) -> tuple[bool, st
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"DB error: {e}"
+    finally:
+        conn.close()
 
 def set_user_active(username: str, active: bool, actor: str) -> tuple[bool, str]:
     """Activate/Deactivate a user account with safety checks."""
@@ -415,6 +436,8 @@ def set_user_active(username: str, active: bool, actor: str) -> tuple[bool, str]
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"DB error: {e}"
+    finally:
+        conn.close()
 
 def _apply_basic_filters(df: pd.DataFrame, table: str, filters: dict) -> pd.DataFrame:
     """Apply simple filters to a DataFrame based on provided filter dict."""
@@ -510,3 +533,5 @@ def export_filtered_data(filters=None, format_type: str = 'csv'):
         data = buffer.getvalue()
         buffer.close()
         return data, 'application/zip'
+    finally:
+        conn.close()

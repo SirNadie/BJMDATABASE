@@ -31,8 +31,8 @@ def _execute_query(query, params=(), fetch=None):
         conn.rollback()
         raise
     finally:
-        # Don't close the connection as it's cached and managed by Streamlit
-        pass
+        if conn:
+            conn.close()
 
 def add_new_client(phone, client_name, username):
     """Add a new client to the database with validation"""
@@ -167,6 +167,8 @@ def add_part_to_vin(vin_number, client_phone, part_name, part_number, quantity, 
         conn.rollback()
         print(f"Database error during part/supplier addition: {e}")
         raise
+    finally:
+        conn.close()
 
 def safe_add_part_to_vin(vin_number, client_phone, part_data, suppliers, username):
     """
@@ -236,6 +238,8 @@ def add_part_without_vin(part_name, part_number, quantity, notes, client_phone, 
         conn.rollback()
         print(f"Database error during part/supplier addition: {e}")
         raise
+    finally:
+        conn.close()
 
 def delete_client(phone, username):
     """Delete a client and all associated data"""
@@ -325,6 +329,8 @@ def delete_vin(vin_number, username, client_phone: str | None = None):
     except sqlite3.Error:
         conn.rollback()
         raise
+    finally:
+        conn.close()
 
 def delete_part(part_id, username):
     """Delete a part and all associated suppliers"""
@@ -378,6 +384,8 @@ def update_client_and_vins(old_phone, new_phone, new_name, username):
         conn.rollback()
         print(f"Database error during client update: {e}")
         raise
+    finally:
+        conn.close()
 
 def update_part(part_id, part_name, part_number, quantity, notes, suppliers_data, username):
     """Update part information and suppliers with a cached connection."""
@@ -418,6 +426,8 @@ def update_part(part_id, part_name, part_number, quantity, notes, suppliers_data
         conn.rollback()
         print(f"Database error during part update: {e}")
         raise
+    finally:
+        conn.close()
 
 def get_clients_by_page(page, page_size=20):
     """Fetch clients for a specific page, ordered by last update."""
@@ -501,6 +511,8 @@ def update_supplier(supplier_id: int, supplier_name: str, buying_price: float, s
         conn.rollback()
         print(f"Database error during supplier update: {e}")
         raise
+    finally:
+        conn.close()
 
 def delete_supplier(supplier_id: int, username: str):
     """Delete a supplier from part_suppliers."""
@@ -528,6 +540,8 @@ def delete_supplier(supplier_id: int, username: str):
         conn.rollback()
         print(f"Database error during supplier deletion: {e}")
         raise
+    finally:
+        conn.close()
 
 def get_part_details(part_id):
     """Retrieve a single part details by its ID."""
@@ -640,6 +654,8 @@ def move_part_to_vin(part_id: int, new_vin_number: str, username: str):
         conn.rollback()
         print(f"Database error during moving part: {e}")
         raise
+    finally:
+        conn.close()
 
 def update_vin(old_vin_number: str, new_vin_number: str, model: str, prod_yr: str, body: str, engine: str, code: str, transmission: str, username: str):
     """Update VIN details. If VIN number changes, update dependent parts as well."""
@@ -699,6 +715,8 @@ def update_vin(old_vin_number: str, new_vin_number: str, model: str, prod_yr: st
         conn.rollback()
         print(f"Database error during VIN update: {e}")
         raise
+    finally:
+        conn.close()
 
 def search_db(query):
     """Perform a comprehensive search across all relevant tables safely."""
@@ -728,6 +746,8 @@ def search_db(query):
     except Exception as e:
         print(f"Error during search: {e}")
         return {'clients': pd.DataFrame(), 'vins': pd.DataFrame(), 'parts': pd.DataFrame()}
+    finally:
+        conn.close()
     
     return {
         'clients': df_clients,
